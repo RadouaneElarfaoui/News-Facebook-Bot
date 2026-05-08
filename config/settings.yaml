@@ -1,0 +1,91 @@
+# News Bot — Configuration Principale
+# ============================================================
+
+brand_name: "Screen Drop"
+
+# --- APIs ---
+# Les valeurs réelles sont dans le fichier .env (chargé par config_loader.py)
+apis:
+  facebook:
+    page_id: "${FB_PAGE_ID}"
+    access_token: "${FB_ACCESS_TOKEN}"
+    api_version: "v25.0"
+
+  gemini:
+    api_key: "${GEMINI_API_KEY}"
+    model: "gemma-4-31b-it"
+
+  gnews:
+    api_key: "${GNEWS_API_KEY}"
+
+  pexels:
+    api_key: "${PEXELS_API_KEY}"
+
+  unsplash:
+    access_key: "${UNSPLASH_ACCESS_KEY}"
+
+# --- Collecte de news ---
+radar:
+  categories:
+    - sport
+    - world
+    - weird
+  languages:
+    - ar
+    - fr
+    - en
+  max_articles_per_run: 20
+  min_trend_score: 50          # Score pytrends minimum (0-100)
+  dedup_threshold: 0.85        # Similarité max entre articles (simhash)
+
+  rss_feeds:
+    sport:
+      - "https://www.bbc.co.uk/sport/rss.xml"
+      - "https://www.goal.com/feeds/ar/news"
+    world:
+      - "http://feeds.bbci.co.uk/arabic/rss.xml"
+      - "https://www.aljazeera.net/aljazeerarss/a5rrjob-1rss.xml"
+    weird:
+      - "https://www.odditycentral.com/feed"
+
+# --- Content Engine ---
+content:
+  max_title_words: 12          # Longueur max du titre généré
+  highlight_max_keywords: 3    # Nombre de mots à surligner en jaune
+
+# --- Visual Factory ---
+visual:
+  output_dir: "output/"
+  image_width: 1200
+  image_height: 630
+  quality: 95                  # JPEG quality (0-100)
+
+  overlay:
+    color: [0, 0, 0]           # RGB noir
+    max_alpha: 225             # Plus sombre pour le contraste (0-255)
+    gradient_power: 2.2        # Gradient plus marqué vers le bas
+
+  text:
+    default_color: [255, 255, 255]     # Blanc
+    highlight_color: [255, 215, 0]     # Jaune doré
+    font_path: "modules/visual/assets/fonts/Cairo-Bold.ttf"
+    font_size_base: 68         # Texte plus gros
+    padding_bottom: 70         # Plus de marge en bas
+    padding_sides: 60          # Marge gauche/droite
+    line_spacing: 15           # Plus d'espace entre lignes
+
+  watermark:
+    path: "modules/visual/assets/logo.png"
+    position: "top-right"
+    scale: 0.25                # Logo un peu plus grand
+    margin: 25
+    opacity: 255
+
+
+# --- Scheduler / Publisher ---
+publisher:
+  posts_per_day: 8
+  posting_hours: [8, 10, 12, 14, 16, 18, 20, 22]  # Heures de publication
+  delay_between_posts_min: 30   # Délai min entre posts (minutes)
+  delay_between_posts_max: 120  # Délai max entre posts (minutes)
+  is_draft: false              # true = ne publie pas réellement (test)
