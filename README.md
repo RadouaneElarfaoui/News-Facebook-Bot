@@ -167,7 +167,7 @@ python main.py --schedule
 ### Déploiement Permanent (Ubuntu)
 
 Pour que le bot tourne 24h/24 et redémarre tout seul avec votre PC, consultez le guide de déploiement :
-👉 **[DEPLOYMENT.md](file:///home/alfredo/Programmation/py_projet/fb-bot/DEPLOYMENT.md)**
+👉 **[DEPLOYMENT.md](DEPLOYMENT.md)**
 
 ### Vérifier toutes les APIs et la publication
 

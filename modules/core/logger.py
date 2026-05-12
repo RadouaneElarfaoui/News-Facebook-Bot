@@ -31,7 +31,7 @@ def get_logger(name: str) -> logging.Logger:
 
     # File handler (rotation 5MB, 3 backups)
     fh = RotatingFileHandler(
-        LOG_DIR / "screen_mix.log",
+        LOG_DIR / "screen_drop.log",
         maxBytes=5 * 1024 * 1024,
         backupCount=3,
         encoding="utf-8",
