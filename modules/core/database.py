@@ -4,7 +4,7 @@ Gestion SQLite : articles vus, posts publiés, historique.
 """
 import sqlite3
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from modules.core.logger import get_logger
 
@@ -14,7 +14,9 @@ DB_PATH.parent.mkdir(exist_ok=True)
 
 
 def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA foreign_keys=ON;")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -44,6 +46,11 @@ def init_db():
                 posted_at   TEXT,
                 status      TEXT DEFAULT 'pending'
             );
+
+            CREATE TABLE IF NOT EXISTS metadata (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
         """)
     logger.info("Database initialized at %s", DB_PATH)
 
@@ -64,8 +71,40 @@ def save_article(url: str, title_ar: str, category: str, image_url: str) -> int:
         return cur.lastrowid
 
 
+def save_metadata(key: str, value: str):
+    """Sauvegarde une paire clé/valeur dans metadata."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+            (key, value)
+        )
+        conn.commit()
+
+
+def get_metadata(key: str) -> str | None:
+    """Récupère une valeur par sa clé."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT value FROM metadata WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else None
+
+
+def increment_consecutive_failures() -> int:
+    """Incrémente le compteur d'échecs consécutifs et retourne la nouvelle valeur."""
+    current = get_metadata("consecutive_failures")
+    count = (int(current) if current else 0) + 1
+    save_metadata("consecutive_failures", str(count))
+    return count
+
+
+def reset_consecutive_failures():
+    """Remet le compteur d'échecs à zéro."""
+    save_metadata("consecutive_failures", "0")
+
+
 def mark_article_posted(article_id: int, fb_post_id: str, image_path: str, caption: str):
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     with get_connection() as conn:
         conn.execute("UPDATE articles SET posted = 1 WHERE id = ?", (article_id,))
         conn.execute(

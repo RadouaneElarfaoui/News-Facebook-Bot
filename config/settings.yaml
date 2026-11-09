@@ -1,7 +1,22 @@
 # News Bot — Configuration Principale
 # ============================================================
 
-brand_name: "Screen Drop"
+# --- Brand Identity ---
+brand:
+  name: "Screen Drop"
+  tagline: "L'actu qui claque"
+  hook: "Screen Drop — L'actu qui claque 👇"
+  persona:
+    tone: "direct, punchy, moderne"
+    age: "18-35"
+    style: "Snackable News — rapide, percutant, visuel"
+    values:
+      - "information vérifiée"
+      - "neutralité politique"
+      - "format adapté aux réseaux sociaux"
+  visual_style:
+    description: "Dark mode, contrast élevé, tons dorés"
+    mood: "cinematic, high-contrast, dramatic lighting"
 
 # --- APIs ---
 # Les valeurs réelles sont dans le fichier .env (chargé par config_loader.py)
@@ -26,32 +41,12 @@ apis:
 
 # --- Collecte de news ---
 radar:
-  categories:
-    - sport
-    - world
-    - weird
-  languages:
-    - ar
-    - fr
-    - en
   max_articles_per_run: 20
-  min_trend_score: 50          # Score pytrends minimum (0-100)
-  dedup_threshold: 0.85        # Similarité max entre articles (simhash)
-
-  rss_feeds:
-    sport:
-      - "https://www.bbc.co.uk/sport/rss.xml"
-      - "https://www.goal.com/feeds/ar/news"
-    world:
-      - "http://feeds.bbci.co.uk/arabic/rss.xml"
-      - "https://www.aljazeera.net/aljazeerarss/a5rrjob-1rss.xml"
-    weird:
-      - "https://www.odditycentral.com/feed"
+  lang: "ar"
+  category: "general"
 
 # --- Content Engine ---
 content:
-  max_title_words: 12          # Longueur max du titre généré
-  highlight_max_keywords: 3    # Nombre de mots à surligner en jaune
 
 # --- Visual Factory ---
 visual:
@@ -84,7 +79,6 @@ visual:
 
 # --- Scheduler / Publisher ---
 publisher:
-  posts_per_day: 8
   posting_hours: [8, 10, 12, 14, 16, 18, 20, 22]  # Heures de publication
   delay_between_posts_min: 30   # Délai min entre posts (minutes)
   delay_between_posts_max: 120  # Délai max entre posts (minutes)

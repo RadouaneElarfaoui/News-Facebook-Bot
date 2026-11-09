@@ -1,215 +1,168 @@
-# 🎬 News Facebook Bot
+# 🎬 Screen Drop — News Facebook Bot
 
-**Automatisation complète du pipeline de publication d'actualités pour les réseaux sociaux.**
+**Pipeline automatisé de veille, rédaction IA, création visuelle RTL et publication d'actualités sur Facebook.**
 
-Le bot collecte les tendances mondiales, réécrit le contenu en arabe avec l'IA Gemini (style Snackable News), génère des visuels stylisés et les publie sur Facebook avec un résumé détaillé en premier commentaire — entièrement en automatique.
-
----
-
-## ✨ Fonctionnalités
-
-- 📡 **Collecte de news** — Récupère les dernières actualités via l'API GNews (arabe, français, anglais).
-- 🤖 **Génération de contenu IA** — Réécrit les titres et génère des légendes engageantes via Google Gemini.
-- 📝 **Storytelling (Snackable News)** — Génère un résumé fluide et moderne en premier commentaire pour chaque post.
-- 🖼️ **Composition visuelle** — Crée des images 1200×630 px :
-  - Image de fond intelligente choisie par l'IA (Pexels / Unsplash).
-  - Overlay gradient noir pour le contraste.
-  - Texte arabe RTL avec mots-clés surlignés en jaune doré.
-  - Watermark logo en filigrane.
-- 🗄️ **Déduplication** — Base SQLite pour ne pas retraiter deux fois le même article.
-- 🚀 **Publication Facebook** — Envoi automatique de l'image et du premier commentaire via Facebook Graph API.
-- 📅 **Scheduler** — Publication planifiée (8 posts/jour) via APScheduler.
-- 🧪 **Tests intégrés** — Validation de toutes les clés API et du rendu visuel.
+Le bot surveille les tendances mondiales en temps réel via **GNews**, réécrit chaque sujet en arabe avec **Google Gemini / Gemma** dans un style *Snackable News* percutant, sélectionne et compose automatiquement un visuel `1200×630 px` avec typographie arabe RTL et mots-clés surlignés en jaune doré, puis publie la photo sur **Facebook** accompagnée d'un récit détaillé en premier commentaire.
 
 ---
 
-## 🏗️ Architecture du projet
+## 📚 Documentation du projet
 
-```
+- 🔄 **[PIPELINE.md](PIPELINE.md)** — Architecture détaillée, flux de données étape par étape et **diagrammes Mermaid** (Flowchart, Séquence, Base de données).
+- 🚀 **[DEPLOYMENT.md](DEPLOYMENT.md)** — Guide de mise en production 24h/24 sous Ubuntu avec `systemd`.
+
+---
+
+## ✨ Fonctionnalités principales
+
+- 📡 **Radar d'actualités (< 24h)** — Collecte les dernières actualités en arabe via l'API **GNews** et écarte automatiquement les articles datant de plus de 24 heures.
+- 🧠 **Moteur éditorial IA (Gemini / Gemma)** — Génère pour chaque sujet :
+  1. Un titre court et accrocheur en arabe + la liste des mots-clés à mettre en valeur.
+  2. Une légende Facebook engageante incitant à lire le premier commentaire.
+  3. Un résumé narratif fluide (*Snackable News*) publié en premier commentaire.
+- 🎨 **Direction artistique & Composition visuelle (`1200×630 px`)** :
+  - Recherche d'images sur **Pexels** puis **Unsplash** (ou génération d'un dégradé sombre en fallback).
+  - **Sélection intelligente par IA** : Gemini choisit la photo la plus pertinente parmi les candidats.
+  - Recadrage centré, léger flou gaussien, overlay dégradé noir, rendu **arabe RTL natif** (`Pillow` + `libraqm`) avec mots-clés en jaune doré (`#FFD700`) et watermark logo.
+- 🗄️ **Déduplication & Persistance SQLite (WAL)** — Stocke les articles traités, l'historique des publications Facebook et l'état interne du bot sans doublons.
+- ⏰ **Scheduler & Rattrapage automatique** — Planification via `APScheduler` (8 créneaux/jour par défaut) avec rattrapage automatique des exécutions manquées au démarrage.
+- 🛡️ **Résilience & Monitoring** — Retry avec backoff exponentiel sur les appels IA, fichier heartbeat (`data/bot.alive`) et fichier d'alerte (`data/bot.alert`) après 3 échecs consécutifs.
+
+---
+
+## 🏗️ Structure du projet
+
+```text
 fb-bot/
-├── main.py                     # Point d'entrée — orchestre le pipeline + scheduler
-├── requirements.txt
-├── .env                        # Secrets locaux (gitignored — ne pas committer)
-├── .env.example                # Template à copier pour configurer le bot
+├── main.py                        # Point d'entrée : orchestrateur du pipeline & scheduler
+├── PIPELINE.md                    # Documentation détaillée du pipeline & diagrammes Mermaid
+├── DEPLOYMENT.md                  # Guide de déploiement systemd (Ubuntu)
+├── requirements.txt               # Dépendances Python
+├── .env                           # Clés API secrètes (ignoré par Git)
+├── .env.example                   # Modèle de fichier d'environnement
 ├── config/
-│   ├── settings.yaml           # Paramètres visuels, scheduler (sans secrets)
-│   └── prompts.yaml            # Templates de prompts Gemini (Snackable News)
+│   ├── settings.yaml              # Identité de marque, paramètres visuels, horaires
+│   └── prompts.yaml               # Templates de prompts IA (titre, légende, commentaire)
 ├── modules/
 │   ├── core/
-│   │   ├── config_loader.py    # Chargement YAML centralisé
-│   │   ├── database.py         # SQLite : articles vus, posts publiés
-│   │   └── logger.py           # Logger structuré
+│   │   ├── config_loader.py       # Chargement centralisé de settings.yaml, prompts.yaml et .env
+│   │   ├── database.py            # Gestion SQLite (articles, posts, metadata)
+│   │   └── logger.py              # Logger rotatif (console + fichiers logs/)
 │   ├── radar/
-│   │   └── aggregator.py       # Récupération GNews API
+│   │   └── aggregator.py          # Collecte et filtrage (< 24h) via GNews API
 │   ├── content/
-│   │   └── engine.py           # ContentEngine : Gemini → Titre, Caption & Comment
+│   │   └── engine.py              # ContentEngine : appels Gemini/Gemma avec retry/backoff
 │   ├── visual/
-│   │   ├── compositor.py       # Composition d'image Pillow (RTL + watermark)
-│   │   ├── image_fetcher.py    # Pexels → Unsplash → Sélection intelligente
+│   │   ├── image_fetcher.py       # Recherche Pexels / Unsplash + sélection IA Gemini
+│   │   ├── compositor.py          # Composition Pillow 1200x630 (RTL, surlignage, watermark)
 │   │   └── assets/
-│   │       ├── fonts/
-│   │       │   └── Cairo-Bold.ttf
+│   │       ├── fonts/Cairo-Bold.ttf
 │   │       └── logo.png
 │   └── publisher/
-│       └── fb_api.py           # Publication Facebook (Post + Commentaire)
+│       └── fb_api.py              # Publication Photo + 1er Commentaire via Facebook Graph API
 ├── data/
-│   └── bot_data.db             # Base SQLite (auto-créée)
-├── output/                     # Images générées (auto-créé)
-├── logs/                       # Fichiers de log rotatifs
-└── tests/
-    ├── test_api_keys.py        # Validation de toutes les APIs
-    ├── test_compositor.py      # Test de la composition visuelle
-    └── test_publisher.py       # Test de publication Facebook (Post + Comment)
+│   ├── bot_data.db                # Base SQLite (créée automatiquement)
+│   ├── bot.alive                  # Heartbeat de la dernière exécution
+│   └── bot.alert                  # Généré en cas de >= 3 échecs consécutifs
+├── output/                        # Visuels générés (post_<timestamp>.jpg)
+├── logs/                          # Journaux d'exécution
+└── tests/                         # Scripts de validation (APIs, compositor, publication)
 ```
 
 ---
 
-## 🔄 Pipeline complet
+## ⚙️ Installation & Configuration
 
-```
-GNews API  ──→  [radar/aggregator]  ──→  Articles frais
-    │
-    ▼
-[content/engine]    ──→  Gemini : Titre Snackable + Keywords
-    │                 ──→  Gemini : Légende Facebook avec mention "Commentaire 👇"
-    │                 ──→  Gemini : Résumé narratif (Snackable Style) pour le commentaire
-    ▼
-[visual/image_fetcher] ──→  Sélection intelligente (IA) sur Pexels / Unsplash
-    │
-    ▼
-[visual/compositor]  ──→  Image 1200×630 px (RTL + Watermark)
-    │
-    ▼
-[publisher/fb_api]   ──→  Publication de la PHOTO
-    │                 ──→  Publication du COMMENTAIRE DÉTAILLÉ
-    ▼
-[core/database]      ──→  Enregistrement SQLite (anti-doublon)
-```
+### 1. Prérequis système
 
----
-
-## 🚀 Installation
-
-### Prérequis
-
-- Python 3.10+
-- `libraqm` (pour le rendu RTL natif avec Pillow)
+- **Python 3.10+**
+- Librairies natives pour le rendu typographique arabe RTL avec `libraqm` :
 
 ```bash
 # Ubuntu / Debian
+sudo apt update
 sudo apt install libfribidi-dev libharfbuzz-dev libfontconfig1-dev
 ```
 
-### Mise en place
+### 2. Environnement virtuel et dépendances
 
 ```bash
-# 1. Cloner le dépôt
 git clone <repo-url>
 cd fb-bot
 
-# 2. Créer et activer le venv
 python3 -m venv venv
 source venv/bin/activate
-
-# 3. Installer les dépendances
 pip install -r requirements.txt
-
-# 4. Configurer les secrets
-cp .env.example .env
-nano .env   # Remplir vos clés API
 ```
 
----
+### 3. Configuration des clés API (`.env`)
 
-## ⚙️ Configuration
-
-Les secrets ne sont **jamais** stockés dans le code. Ils sont gérés via un fichier `.env` local.
+Copiez le fichier d'exemple et renseignez vos identifiants :
 
 ```bash
-# Copier le template
 cp .env.example .env
-
-# Éditer .env et remplir vos vraies clés
 nano .env
 ```
 
-Les clés à renseigner dans `.env` :
-
 | Variable | Description |
-|---|---|
-| `FB_PAGE_ID` | ID de votre page Facebook |
-| `FB_ACCESS_TOKEN` | Token d'accès Facebook Graph API |
-| `GEMINI_API_KEY` | Clé Google AI Studio |
-| `GNEWS_API_KEY` | Clé GNews API |
-| `PEXELS_API_KEY` | Clé Pexels |
-| `UNSPLASH_ACCESS_KEY` | Clé Unsplash |
+| :--- | :--- |
+| `FB_PAGE_ID` | Identifiant de la page Facebook cible |
+| `FB_ACCESS_TOKEN` | Token d'accès de page Facebook Graph API |
+| `GEMINI_API_KEY` | Clé API Google AI Studio (Gemini / Gemma) |
+| `GNEWS_API_KEY` | Clé API GNews (`https://gnews.io`) |
+| `PEXELS_API_KEY` | Clé API Pexels (`https://www.pexels.com/api/`) |
+| `UNSPLASH_ACCESS_KEY` | Clé API Unsplash (`https://unsplash.com/developers`) |
 
-> **⚠️ Note sur le modèle LLM** : Le modèle configuré dans `settings.yaml` est `gemma-4-31b-it`. Ne modifiez pas ce paramètre sans autorisation préalable.
+> **⚠️ Note importante sur le modèle IA** : Le modèle défini dans `config/settings.yaml` (`apis.gemini.model`) est configuré sur `gemma-4-31b-it`. Ne modifiez pas ce paramètre sans autorisation préalable.
 
 ---
 
 ## ▶️ Utilisation
 
-### Lancer le pipeline une seule fois (Manuel)
+### Exécution unique (immédiate)
+
+Lance un cycle complet de collecte, génération et publication :
 
 ```bash
 source venv/bin/activate
 python main.py --once
 ```
 
-### Lancer le bot en automatique (Daemon/Serveur)
+### Mode Planifié (Daemon / Scheduler)
+
+Lance le planificateur en continu aux heures définies dans `config/settings.yaml` (`posting_hours: [8, 10, 12, 14, 16, 18, 20, 22]`) avec rattrapage automatique au démarrage :
 
 ```bash
+source venv/bin/activate
 python main.py --schedule
 ```
-*Le bot tournera en arrière-plan et publiera aux heures définies dans `settings.yaml`.*
 
-### Déploiement Permanent (Ubuntu)
+### Mode Brouillon / Simulation (`is_draft`)
 
-Pour que le bot tourne 24h/24 et redémarre tout seul avec votre PC, consultez le guide de déploiement :
-👉 **[DEPLOYMENT.md](DEPLOYMENT.md)**
+Pour tester tout le pipeline (collecte + IA + génération d'image dans `output/`) **sans publier réellement sur Facebook**, passez `is_draft: true` dans `config/settings.yaml` :
 
-### Vérifier toutes les APIs et la publication
+```yaml
+publisher:
+  is_draft: true
+```
 
+---
+
+## 🧪 Tests & Vérifications
 
 ```bash
+# Tester la validité des clés API
 python tests/test_api_keys.py
+
+# Tester la génération d'image et le rendu arabe RTL
+python tests/test_compositor.py
+
+# Tester la publication Facebook (Photo + Commentaire)
 python tests/test_publisher.py
 ```
 
 ---
 
-## 📦 Dépendances principales
-
-- `Pillow` (Support `libraqm`) : Rendu image et texte RTL.
-- `google-genai` : SDK Google Gemini pour la génération de contenu.
-- `apscheduler` : Planification robuste des publications.
-- `httpx` : Requêtes asynchrones pour les APIs.
-- `python-dotenv` : Chargement des secrets depuis `.env`.
-
----
-
-## 🧩 Détails techniques
-
-### Snackable News Style
-Le bot évite les listes à puces ennuyeuses dans les commentaires. Il utilise un style narratif inspiré des grands médias sociaux (AJ+, Brut), avec des paragraphes courts et une transition fluide pour captiver le lecteur.
-
-### Rendu Arabe Natif
-Le compositor utilise **Pillow avec libraqm** pour garantir une mise en forme RTL parfaite, incluant le support complexe des ligatures et le surlignage mot-à-mot de droite à gauche.
-
----
-
-## 🗺️ Roadmap
-
-- [x] Module `publisher` — Publication automatique (Post + Comment)
-- [x] Scheduler APScheduler — 8 posts/jour
-- [ ] Support multi-catégories avancé (sport, monde, insolite)
-- [ ] Déduplication par similarité (SimHash)
-- [ ] Dashboard de monitoring Web
-- [ ] Support vidéo (Reels courts)
-
----
-
 ## 📄 Licence
 
-Projet privé — Screen Drop. Tous droits réservés.
+Projet privé — **Screen Drop**. Tous droits réservés.

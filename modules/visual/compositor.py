@@ -22,6 +22,16 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from PIL import features
 RAQM_SUPPORT = features.check("raqm")
 
+def _shape_text(text: str) -> str:
+    if not RAQM_SUPPORT:
+        try:
+            import arabic_reshaper
+            from bidi.algorithm import get_display
+            return get_display(arabic_reshaper.reshape(text))
+        except ImportError:
+            return text
+    return text
+
 from modules.core.config_loader import config
 from modules.core.logger import get_logger
 
@@ -97,8 +107,12 @@ def _wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[
 
     for word in words:
         test_line = (current_line + " " + word).strip()
-        # On utilise direction='rtl' pour obtenir la vraie largeur
-        w = font.getlength(test_line, direction="rtl")
+        display_line = _shape_text(test_line)
+        if RAQM_SUPPORT:
+            w = font.getlength(display_line, direction="rtl")
+        else:
+            w = font.getlength(display_line)
+
         if w <= max_width:
             current_line = test_line
         else:
@@ -127,40 +141,47 @@ def _render_text_with_highlights(
     lines = _wrap_text(title, font, max_text_width)
     line_height = font.size + LINE_SPACING
     
-    clean_keywords = [k.strip(".,!؟،:").lower() for k in keywords]
+    clean_keywords = [k.strip(".,!؟،:").lower() for k in keywords if k]
 
     for i, line in enumerate(lines):
         y = start_y + i * line_height
+        display_line = _shape_text(line)
         
-        # Calcul de la largeur totale de la ligne pour le centrage
-        line_w = font.getlength(line, direction="rtl")
-        # Point de départ X (droite de la ligne centrée)
+        if RAQM_SUPPORT:
+            line_w = font.getlength(display_line, direction="rtl")
+        else:
+            line_w = font.getlength(display_line)
+
         x_right = (canvas_width + line_w) // 2
 
-        # 1. Ombre portée (RTL)
+        # 1. Ombre portée
         for offset in [(2,2), (1,1), (-1,1), (1,-1)]:
-            draw.text((x_right + offset[0], y + offset[1]), line, font=font, 
-                      fill=(0, 0, 0, 200), direction="rtl", anchor="ra")
+            if RAQM_SUPPORT:
+                draw.text((x_right + offset[0], y + offset[1]), display_line, font=font, 
+                          fill=(0, 0, 0, 200), direction="rtl", anchor="ra")
+            else:
+                draw.text((x_right - line_w + offset[0], y + offset[1]), display_line, font=font, 
+                          fill=(0, 0, 0, 200))
 
         # 2. Rendu par mots pour le surlignage
-        # Note: On dessine de droite à gauche
         words = line.split()
         cursor_x = x_right
         
         for word in words:
-            # On nettoie le mot pour comparer aux mots-clés
             clean_word = word.strip(".,!؟،:").lower()
-            # On surligne si le mot est un mot-clé ou fait partie d'un groupe de mots-clés
-            is_highlight = any(clean_word in kw for kw in clean_keywords)
-            
+            # Surlignage exact (évite de correspondre à une sous-chaîne courte)
+            is_highlight = any(clean_word == kw or clean_word == kw.strip() for kw in clean_keywords)
             color = TEXT_YELLOW if is_highlight else TEXT_WHITE
             
-            # Dessine le mot
-            draw.text((cursor_x, y), word, font=font, fill=color, 
-                      direction="rtl", anchor="ra")
-            
-            # Avance le curseur (mot + espace)
-            word_w = font.getlength(word + " ", direction="rtl")
+            display_word = _shape_text(word)
+            if RAQM_SUPPORT:
+                draw.text((cursor_x, y), display_word, font=font, fill=color, 
+                          direction="rtl", anchor="ra")
+                word_w = font.getlength(_shape_text(word + " "), direction="rtl")
+            else:
+                word_w = font.getlength(display_word + " ")
+                draw.text((cursor_x - word_w, y), display_word, font=font, fill=color)
+
             cursor_x -= word_w
 
 

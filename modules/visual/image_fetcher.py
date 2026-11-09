@@ -9,7 +9,6 @@ parmi les candidats en analysant le contenu de l'article.
 """
 from __future__ import annotations
 
-import json
 import random
 from io import BytesIO
 from pathlib import Path
@@ -25,6 +24,15 @@ logger = get_logger(__name__)
 
 PEXELS_KEY  = config["apis"]["pexels"]["api_key"]
 UNSPLASH_KEY = config["apis"]["unsplash"]["access_key"]
+
+_GEMINI_CLIENT = None
+
+
+def _get_gemini_client():
+    global _GEMINI_CLIENT
+    if _GEMINI_CLIENT is None:
+        _GEMINI_CLIENT = genai.Client(api_key=config["apis"]["gemini"]["api_key"])
+    return _GEMINI_CLIENT
 
 
 # ═══════════════════════════════════════════════════════════
@@ -64,26 +72,22 @@ def _select_best_image_with_gemini(article_text: str, candidates: list[dict]) ->
     )
 
     try:
-        api_key = config["apis"]["gemini"]["api_key"]
-        model   = config["apis"]["gemini"]["model"]
-        client  = genai.Client(api_key=api_key)
+        model  = config["apis"]["gemini"]["model"]
+        client = _get_gemini_client()
 
         response = client.models.generate_content(model=model, contents=prompt)
-        raw = response.text.strip()
+        raw = response.text.strip() if (response and response.text) else ""
 
         import re
-        match = re.search(r'\d+', raw)
-        
-        if match:
-            index = int(match.group())
+        matches = re.findall(r'\b\d+\b', raw)
+        for m in matches:
+            index = int(m)
             if 0 <= index < len(candidates):
                 chosen_alt = candidates[index].get("alt", "—")
                 logger.info("🤖 Gemini a sélectionné l'image #%d : \"%s\"", index, chosen_alt[:80])
                 return index
-            else:
-                logger.warning("Gemini a retourné un index hors plage (%s), fallback aléatoire.", raw)
-        else:
-            logger.warning("Aucun nombre trouvé dans la réponse Gemini ('%s').", raw)
+
+        logger.warning("Aucun index valide (0..%d) trouvé dans la réponse Gemini ('%s').", len(candidates) - 1, raw)
 
     except Exception as e:
         logger.warning("Erreur sélection Gemini : %s — fallback aléatoire.", e)
@@ -134,7 +138,10 @@ def fetch_from_pexels(query: str, article_text: str = "") -> Image.Image | None:
             idx = random.randint(0, min(4, len(candidates) - 1))
 
         img_data = httpx.get(candidates[idx]["src_large2x"], timeout=15).content
-        return Image.open(BytesIO(img_data))
+        with BytesIO(img_data) as buf:
+            img = Image.open(buf)
+            img.load()
+            return img
 
     except Exception as e:
         logger.warning("Pexels fetch error : %s", e)
@@ -183,7 +190,10 @@ def fetch_from_unsplash(query: str, article_text: str = "") -> Image.Image | Non
             idx = 0
 
         img_data = httpx.get(candidates[idx]["url_regular"], timeout=15).content
-        return Image.open(BytesIO(img_data))
+        with BytesIO(img_data) as buf:
+            img = Image.open(buf)
+            img.load()
+            return img
 
     except Exception as e:
         logger.warning("Unsplash fetch error : %s", e)

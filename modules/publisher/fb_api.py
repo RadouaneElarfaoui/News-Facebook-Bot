@@ -61,7 +61,13 @@ def publish_photo(image_path: str | Path, caption: str) -> str | None:
             logger.info("✅ Post Facebook réussi ! ID: %s", post_id)
             return post_id
         else:
-            logger.error("❌ Échec publication Facebook : %d - %s", resp.status_code, resp.text)
+            try:
+                err_data = resp.json().get("error", {})
+                err_msg = err_data.get("message", "Erreur inconnue")
+                err_code = err_data.get("code", resp.status_code)
+                logger.error("❌ Échec publication Facebook [%s] : %s", err_code, err_msg)
+            except Exception:
+                logger.error("❌ Échec publication Facebook : HTTP %d", resp.status_code)
             return None
             
     except Exception as e:
@@ -95,7 +101,13 @@ def publish_comment(post_id: str, message: str) -> str | None:
             logger.info("✅ Commentaire réussi ! ID: %s", comment_id)
             return comment_id
         else:
-            logger.error("❌ Échec commentaire Facebook : %d - %s", resp.status_code, resp.text)
+            try:
+                err_data = resp.json().get("error", {})
+                err_msg = err_data.get("message", "Erreur inconnue")
+                err_code = err_data.get("code", resp.status_code)
+                logger.error("❌ Échec commentaire Facebook [%s] : %s", err_code, err_msg)
+            except Exception:
+                logger.error("❌ Échec commentaire Facebook : HTTP %d", resp.status_code)
             return None
     except Exception as e:
         logger.error("Erreur lors du commentaire Facebook : %s", e)

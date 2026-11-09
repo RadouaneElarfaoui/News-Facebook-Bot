@@ -5,6 +5,7 @@ Génère le titre, les mots-clés et la légende via Gemini/Gemma.
 Utilise le nouveau SDK google-genai avec retry + backoff automatique.
 """
 import json
+import re
 import time
 import random
 from google import genai
@@ -63,13 +64,29 @@ class ContentEngine:
         self.client = genai.Client(api_key=config["apis"]["gemini"]["api_key"])
         self.model_name = config["apis"]["gemini"]["model"]
 
+    @staticmethod
+    def _brand_format_vars() -> dict:
+        brand = config.get("brand", {})
+        p = brand.get("persona", {})
+        values = p.get("values", [])
+        return {
+            "brand_name": brand.get("name", "Screen Drop"),
+            "brand_tagline": brand.get("tagline", ""),
+            "brand_hook": brand.get("hook", ""),
+            "brand_persona": p.get("style", ""),
+            "brand_tone": p.get("tone", ""),
+            "brand_age": p.get("age", ""),
+            "brand_style": p.get("style", ""),
+            "brand_values_line": "\n".join(f"- {v}" for v in values),
+        }
+
     def generate_post_data(self, article_text: str) -> dict | None:
         """
         Réécrit le news (Titre + Keywords + image_query).
         """
         prompt_cfg = prompts["rewrite_news"]
-        brand_name = config.get("brand_name", "News Bot")
-        sys_instr = prompt_cfg["system"].format(brand_name=brand_name)
+        bv = self._brand_format_vars()
+        sys_instr = prompt_cfg["system"].format(**bv)
         user_prompt = prompt_cfg["user_template"].format(article_text=article_text)
 
         try:
@@ -82,10 +99,21 @@ class ContentEngine:
                 },
                 contents=user_prompt
             )
-            data = json.loads(response.text)
+            raw_text = response.text.strip() if (response and response.text) else ""
+            if raw_text.startswith("```"):
+                raw_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text, flags=re.IGNORECASE).strip()
+
+            data = json.loads(raw_text)
+            if not isinstance(data, dict) or "title" not in data:
+                logger.error("Dictionnaire retourné par Gemini invalide : %s", data)
+                return None
+
             logger.info("✓ Titre généré : %s", data.get("title"))
             return data
 
+        except json.JSONDecodeError as e:
+            logger.error("Gemini a retourné un JSON invalide (après retries) : %s", e)
+            return None
         except Exception as e:
             logger.error("Erreur génération contenu (après retries) : %s", e)
             return None
@@ -95,8 +123,8 @@ class ContentEngine:
         Génère une légende Facebook engageante.
         """
         prompt_cfg = prompts["caption_generator"]
-        brand_name = config.get("brand_name", "News Bot")
-        sys_instr = prompt_cfg["system"].format(brand_name=brand_name)
+        bv = self._brand_format_vars()
+        sys_instr = prompt_cfg["system"].format(**bv)
         user_prompt = prompt_cfg["user_template"].format(title=title)
 
         try:
@@ -117,8 +145,8 @@ class ContentEngine:
         Génère un résumé détaillé pour le premier commentaire.
         """
         prompt_cfg = prompts["detail_comment_generator"]
-        brand_name = config.get("brand_name", "News Bot")
-        sys_instr = prompt_cfg["system"].format(brand_name=brand_name)
+        bv = self._brand_format_vars()
+        sys_instr = prompt_cfg["system"].format(**bv)
         user_prompt = prompt_cfg["user_template"].format(article_text=article_text)
 
         try:

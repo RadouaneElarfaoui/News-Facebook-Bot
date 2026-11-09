@@ -3,6 +3,8 @@ Radar — Aggregator
 ===================
 Récupère les actualités fraîches via l'API GNews.
 """
+from datetime import datetime, timezone, timedelta
+
 import httpx
 from modules.core.config_loader import config
 from modules.core.logger import get_logger
@@ -22,9 +24,9 @@ def fetch_trending_news() -> list[dict]:
     url = "https://gnews.io/api/v4/top-headlines"
     params = {
         "token": api_key,
-        "lang": "ar",
-        "max": 10,
-        "category": "general"
+        "lang": config.get("radar", {}).get("lang", "ar"),
+        "max": config.get("radar", {}).get("max_articles_per_run", 10),
+        "category": config.get("radar", {}).get("category", "general")
     }
 
     try:
@@ -32,6 +34,15 @@ def fetch_trending_news() -> list[dict]:
         resp = httpx.get(url, params=params, timeout=15)
         resp.raise_for_status()
         articles = resp.json().get("articles", [])
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        before = len(articles)
+        articles = [
+            a for a in articles
+            if a.get("publishedAt") and datetime.fromisoformat(a["publishedAt"].replace("Z", "+00:00")) >= cutoff
+        ]
+        filtered = before - len(articles)
+        if filtered:
+            logger.info("🗑️ %d articles filtrés (>24h).", filtered)
         logger.info("✓ %d articles récupérés.", len(articles))
         return articles
     except Exception as e:
