@@ -20,19 +20,30 @@ def _resolve_env_vars(value):
     """
     Résout récursivement les placeholders ${VAR} dans les valeurs YAML
     en les remplaçant par les variables d'environnement correspondantes.
+    Convertit automatiquement les chaînes booléennes ("true"/"false") et entiers si applicable.
     """
     if isinstance(value, str):
-        # Remplace tous les ${VAR} trouvés
+        # Remplace tous les ${VAR} ou ${VAR:-defaut} trouvés
         def replacer(match):
             var_name = match.group(1)
+            default_val = match.group(2)
             env_val = os.environ.get(var_name)
-            if env_val is None:
-                raise EnvironmentError(
-                    f"Variable d'environnement manquante : '{var_name}'. "
-                    f"Vérifiez votre fichier .env (voir .env.example)."
-                )
-            return env_val
-        return re.sub(r"\$\{(\w+)\}", replacer, value)
+            if env_val is not None:
+                return env_val
+            if default_val is not None:
+                return default_val
+            raise EnvironmentError(
+                f"Variable d'environnement manquante : '{var_name}'. "
+                f"Vérifiez votre fichier .env (voir .env.example)."
+            )
+        resolved = re.sub(r"\$\{(\w+)(?::-([^}]*))?\}", replacer, value)
+        # Typage automatique pour les booléens usuels
+        lowered = resolved.lower()
+        if lowered in ("true", "yes", "1"):
+            return True
+        if lowered in ("false", "no", "0"):
+            return False
+        return resolved
     elif isinstance(value, dict):
         return {k: _resolve_env_vars(v) for k, v in value.items()}
     elif isinstance(value, list):

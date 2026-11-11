@@ -15,33 +15,32 @@ from pathlib import Path
 
 import httpx
 from PIL import Image, ImageDraw
-from google import genai
 
 from modules.core.config_loader import config
 from modules.core.logger import get_logger
+from modules.llm import get_backend
 
 logger = get_logger(__name__)
 
-PEXELS_KEY  = config["apis"]["pexels"]["api_key"]
+PEXELS_KEY = config["apis"]["pexels"]["api_key"]
 UNSPLASH_KEY = config["apis"]["unsplash"]["access_key"]
 
-_GEMINI_CLIENT = None
-
-
-def _get_gemini_client():
-    global _GEMINI_CLIENT
-    if _GEMINI_CLIENT is None:
-        _GEMINI_CLIENT = genai.Client(api_key=config["apis"]["gemini"]["api_key"])
-    return _GEMINI_CLIENT
+IMAGE_PICK_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "index": {"type": "integer"},
+    },
+    "required": ["index"],
+}
 
 
 # ═══════════════════════════════════════════════════════════
-# 1. Sélection intelligente par Gemini
+# 1. Sélection intelligente par l'agent (agy)
 # ═══════════════════════════════════════════════════════════
 
-def _select_best_image_with_gemini(article_text: str, candidates: list[dict]) -> int:
+def _select_best_image(article_text: str, candidates: list[dict]) -> int:
     """
-    Demande à Gemini de choisir l'image la plus pertinente et
+    Demande au backend LLM (agy) de choisir l'image la plus pertinente et
     visuellement impactante pour illustrer l'article.
 
     Args:
@@ -63,34 +62,26 @@ def _select_best_image_with_gemini(article_text: str, candidates: list[dict]) ->
     prompt = (
         "Tu es un directeur artistique pour une page d'actualités Facebook. "
         "Ton rôle est de choisir la photo la plus "
-        "pertinente, percutante et visuellement forte pour illustrer l'article.\n\n"
-
+        "pertinente, percutante et visuellement forte pour illustrer l'article.\n"
+        "N'utilise aucun outil, réponds uniquement avec l'objet JSON demandé.\n\n"
         f"Sujet de l'article :\n\"{article_text}\"\n\n"
         f"Photos disponibles ({len(candidates)}) :\n{options_lines}\n\n"
-        f"Réponds UNIQUEMENT avec le chiffre correspondant (0 à {len(candidates) - 1}), "
-        "sans aucune explication."
+        f"Choisis l'index (entier de 0 à {len(candidates) - 1}) de la meilleure photo."
     )
 
     try:
-        model  = config["apis"]["gemini"]["model"]
-        client = _get_gemini_client()
+        backend = get_backend()
+        res = backend.generate_json(prompt, IMAGE_PICK_SCHEMA)
+        index = int(res.get("index", -1))
+        if 0 <= index < len(candidates):
+            chosen_alt = candidates[index].get("alt", "—")
+            logger.info("🤖 %s a sélectionné l'image #%d : \"%s\"", backend.name, index, chosen_alt[:80])
+            return index
 
-        response = client.models.generate_content(model=model, contents=prompt)
-        raw = response.text.strip() if (response and response.text) else ""
-
-        import re
-        matches = re.findall(r'\b\d+\b', raw)
-        for m in matches:
-            index = int(m)
-            if 0 <= index < len(candidates):
-                chosen_alt = candidates[index].get("alt", "—")
-                logger.info("🤖 Gemini a sélectionné l'image #%d : \"%s\"", index, chosen_alt[:80])
-                return index
-
-        logger.warning("Aucun index valide (0..%d) trouvé dans la réponse Gemini ('%s').", len(candidates) - 1, raw)
+        logger.warning("Index hors limites (%s) retourné par %s.", index, backend.name)
 
     except Exception as e:
-        logger.warning("Erreur sélection Gemini : %s — fallback aléatoire.", e)
+        logger.warning("Erreur sélection image via LLM : %s — fallback aléatoire.", e)
 
     return random.randint(0, len(candidates) - 1)
 
@@ -133,7 +124,7 @@ def fetch_from_pexels(query: str, article_text: str = "") -> Image.Image | None:
 
         # Choix intelligent si le texte de l'article est disponible
         if article_text:
-            idx = _select_best_image_with_gemini(article_text, candidates)
+            idx = _select_best_image(article_text, candidates)
         else:
             idx = random.randint(0, min(4, len(candidates) - 1))
 
@@ -185,7 +176,7 @@ def fetch_from_unsplash(query: str, article_text: str = "") -> Image.Image | Non
         ]
 
         if article_text:
-            idx = _select_best_image_with_gemini(article_text, candidates)
+            idx = _select_best_image(article_text, candidates)
         else:
             idx = 0
 

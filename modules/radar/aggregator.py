@@ -21,12 +21,13 @@ def fetch_trending_news() -> list[dict]:
         return []
 
     # On récupère les news mondiales (top-headlines) en arabe
+    radar_cfg = config.get("radar", {})
     url = "https://gnews.io/api/v4/top-headlines"
     params = {
         "token": api_key,
-        "lang": config.get("radar", {}).get("lang", "ar"),
-        "max": config.get("radar", {}).get("max_articles_per_run", 10),
-        "category": config.get("radar", {}).get("category", "general")
+        "lang": radar_cfg.get("lang", "ar"),
+        "max": radar_cfg.get("fetch_max", radar_cfg.get("max_articles_per_run", 20)),
+        "category": radar_cfg.get("category", "general")
     }
 
     try:
