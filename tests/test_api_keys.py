@@ -1,30 +1,20 @@
 import sys
 from pathlib import Path
 import httpx
-from google import genai
 
 # Ajoute la racine au sys.path pour les imports locaux
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from modules.core.config_loader import config
+from modules.llm import get_backend
 
-def test_gemini():
-    print("\n--- Test Gemini ---")
-    api_key = config["apis"]["gemini"]["api_key"]
-    model_name = config["apis"]["gemini"]["model"]
-    if not api_key or "YOUR" in api_key:
-        print("❌ Gemini API Key non configurée.")
-        return
-    
-    try:
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=model_name,
-            contents="Est-ce que tu fonctionnes ?"
-        )
-        print(f"✅ Gemini fonctionne ! Réponse : {response.text[:50]}...")
-    except Exception as e:
-        print(f"❌ Gemini échec : {e}")
+def test_agy():
+    print("\n--- Test Antigravity CLI (agy) ---")
+    ok, info = get_backend().check_health()
+    if ok:
+        print(f"✅ agy fonctionne ! {info}")
+    else:
+        print(f"❌ agy échec : {info}")
 
 def test_gnews():
     print("\n--- Test GNews ---")
@@ -105,7 +95,7 @@ def test_facebook():
         print(f"❌ Facebook erreur : {e}")
 
 if __name__ == "__main__":
-    test_gemini()
+    test_agy()
     test_gnews()
     test_pexels()
     test_unsplash()
