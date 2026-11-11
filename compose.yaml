@@ -1,0 +1,30 @@
+services:
+  bot:
+    build: .
+    container_name: screen-drop-bot
+    restart: unless-stopped
+    # Le conteneur tourne avec l'UID/GID de l'hôte pour pouvoir écrire dans ./data, ./output, ./logs.
+    # Définir BOT_UID=$(id -u) et BOT_GID=$(id -g) dans .env (voir .env.example). Défaut : 1000.
+    user: "${BOT_UID:-1000}:${BOT_GID:-1000}"
+    env_file: .env
+    environment:
+      HOME: /app/data/agy-home
+      AGY_HOME: /app/data/agy-home
+      AGY_BINARY: /usr/local/bin/agy
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./logs:/app/logs
+      - ${AGY_HOST_BIN:-${HOME}/.local/bin/agy}:/usr/local/bin/agy:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os, sys, time; p='data/bot.alive'; sys.exit(0 if (os.path.exists(p) and time.time()-os.path.getmtime(p)<1800 and not os.path.exists('data/bot.alert')) else 1)",
+        ]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 2m

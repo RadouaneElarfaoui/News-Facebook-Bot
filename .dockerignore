@@ -1,0 +1,11 @@
+venv/
+.env
+.env.*
+!.env.example
+data/
+output/
+logs/
+.git/
+__pycache__/
+*.pyc
+tests/font_test.png
