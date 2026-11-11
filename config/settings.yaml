@@ -26,22 +26,29 @@ apis:
     access_token: "${FB_ACCESS_TOKEN}"
     api_version: "v25.0"
 
-  gemini:
-    api_key: "${GEMINI_API_KEY}"
-    model: "gemma-4-31b-it"
-
   gnews:
     api_key: "${GNEWS_API_KEY}"
 
   pexels:
-    api_key: "${PEXELS_API_KEY}"
+    api_key: "${PEXELS_API_KEY:-}"
 
   unsplash:
-    access_key: "${UNSPLASH_ACCESS_KEY}"
+    access_key: "${UNSPLASH_ACCESS_KEY:-}"
+
+# --- Moteur LLM (Antigravity CLI) ---
+llm:
+  backend: "agy"
+  agy:
+    binary: "${AGY_BINARY:-agy}"
+    model: "gemini-3.8-flash-medium"
+    home: "${AGY_HOME:-}"               # Vide = HOME courant (~/.gemini/antigravity-cli) ; ex: data/agy-home en Docker
+    workdir: "data/agy-workspace"
+    timeout_seconds: 180
+    keep_conversations_days: 3
 
 # --- Collecte de news ---
 radar:
-  max_articles_per_run: 20
+  fetch_max: 20
   lang: "ar"
   category: "general"
 
@@ -51,6 +58,7 @@ content:
 # --- Visual Factory ---
 visual:
   output_dir: "output/"
+  keep_output_days: 14         # Nettoyage auto des images > 14 jours
   image_width: 1200
   image_height: 630
   quality: 95                  # JPEG quality (0-100)
@@ -80,6 +88,8 @@ visual:
 # --- Scheduler / Publisher ---
 publisher:
   posting_hours: [8, 10, 12, 14, 16, 18, 20, 22]  # Heures de publication
+  posts_per_run: 1              # Maximum 1 publication par créneau horaire
+  alert_no_publish_hours: 24    # Alerte si aucune publication réussie depuis X heures
   delay_between_posts_min: 30   # Délai min entre posts (minutes)
   delay_between_posts_max: 120  # Délai max entre posts (minutes)
-  is_draft: false              # true = ne publie pas réellement (test)
+  is_draft: "${IS_DRAFT:-true}" # true = ne publie pas réellement (test)

@@ -1,68 +1,46 @@
 """
 Content — Engine
 =================
-Génère le titre, les mots-clés et la légende via Gemini/Gemma.
-Utilise le nouveau SDK google-genai avec retry + backoff automatique.
+Génère en un seul appel structuré via Antigravity CLI (`agy`) :
+- le titre arabe punchy (`title`)
+- les mots-clés à surligner en jaune (`keywords`)
+- la requête de recherche d'image en anglais (`image_query`)
+- la légende Facebook (`caption`)
+- le résumé narratif en premier commentaire (`detail_comment`)
 """
-import json
+from __future__ import annotations
+
 import re
-import time
-import random
-from google import genai
 from modules.core.config_loader import config, prompts
 from modules.core.logger import get_logger
+from modules.llm import LLMAuthError, LLMBackend, LLMError, get_backend
 
 logger = get_logger(__name__)
 
-# Délai minimum entre chaque appel Gemini (évite le rate limiting)
-_GEMINI_CALL_DELAY = 3  # secondes
+CTA_SUFFIX = "التفاصيل في أول تعليق 👇"
 
-
-def _call_gemini_with_retry(client, model_name: str, gen_config: dict, contents: str,
-                             max_retries: int = 3):
-    """
-    Appelle l'API Gemini avec retry + exponential backoff en cas d'erreur 500.
-
-    Args:
-        max_retries: Nombre max de tentatives (3 = 1 essai + 2 retries).
-
-    Returns:
-        L'objet response de l'API, ou lève l'exception si tous les retries échouent.
-    """
-    delay = 5  # délai initial avant le 1er retry (secondes)
-
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                config=gen_config,
-                contents=contents
-            )
-            # Pause systématique après chaque appel réussi (anti rate-limit)
-            time.sleep(_GEMINI_CALL_DELAY)
-            return response
-
-        except Exception as e:
-            error_str = str(e)
-            is_server_error = "500" in error_str or "INTERNAL" in error_str
-            is_rate_limit = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
-
-            if attempt < max_retries - 1 and (is_server_error or is_rate_limit):
-                wait = delay + random.uniform(0, 2)  # jitter pour éviter les pics
-                logger.warning(
-                    "⚠️ Gemini erreur temporaire (tentative %d/%d). Retry dans %.1fs : %s",
-                    attempt + 1, max_retries, wait, error_str[:80]
-                )
-                time.sleep(wait)
-                delay *= 2  # backoff exponentiel : 5s → 10s → 20s
-            else:
-                raise  # Erreur non-récupérable ou dernière tentative
+PACKAGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "keywords": {"type": "array", "items": {"type": "string"}},
+        "image_query": {"type": "string"},
+        "caption": {"type": "string"},
+        "detail_comment": {"type": "string"},
+    },
+    "required": [
+        "title",
+        "keywords",
+        "image_query",
+        "caption",
+        "detail_comment",
+    ],
+}
 
 
 class ContentEngine:
-    def __init__(self):
-        self.client = genai.Client(api_key=config["apis"]["gemini"]["api_key"])
-        self.model_name = config["apis"]["gemini"]["model"]
+    def __init__(self, backend: LLMBackend | None = None):
+        self.backend = backend or get_backend()
 
     @staticmethod
     def _brand_format_vars() -> dict:
@@ -80,84 +58,66 @@ class ContentEngine:
             "brand_values_line": "\n".join(f"- {v}" for v in values),
         }
 
-    def generate_post_data(self, article_text: str) -> dict | None:
+    @staticmethod
+    def _normalize_package(data: dict) -> dict | None:
+        if not isinstance(data, dict):
+            return None
+
+        title = str(data.get("title") or "").strip()
+        if not title:
+            return None
+
+        raw_keywords = data.get("keywords") or []
+        if isinstance(raw_keywords, list):
+            keywords = [str(k).strip() for k in raw_keywords if str(k).strip()][:3]
+        else:
+            keywords = []
+
+        image_query = str(data.get("image_query") or "").strip() or "breaking news"
+
+        caption = str(data.get("caption") or "").strip() or title
+        if CTA_SUFFIX not in caption:
+            caption = f"{caption}\n{CTA_SUFFIX}"
+
+        detail_comment = str(data.get("detail_comment") or "").strip()
+        # Nettoyage préventif des séparateurs markdown éventuels
+        detail_comment = re.sub(r"^\s*(?:\*{3,}|-{3,}|#{1,6}\s+).*$", "", detail_comment, flags=re.MULTILINE).strip()
+
+        return {
+            "title": title,
+            "keywords": keywords,
+            "image_query": image_query,
+            "caption": caption,
+            "detail_comment": detail_comment,
+        }
+
+    def generate_package(self, article_text: str) -> dict | None:
         """
-        Réécrit le news (Titre + Keywords + image_query).
+        Génère l'ensemble du contenu éditorial d'un article en un seul appel `agy`.
+        Lève `LLMAuthError` si la session `agy` nécessite une reconnexion.
         """
-        prompt_cfg = prompts["rewrite_news"]
+        prompt_cfg = prompts["article_package"]
         bv = self._brand_format_vars()
-        sys_instr = prompt_cfg["system"].format(**bv)
-        user_prompt = prompt_cfg["user_template"].format(article_text=article_text)
+        sys_instr = prompt_cfg["system"].format(**bv).strip()
+        user_prompt = prompt_cfg["user_template"].format(article_text=article_text).strip()
+        full_prompt = f"{sys_instr}\n\n{user_prompt}"
 
         try:
-            logger.info("Génération du titre via Gemini (%s)...", self.model_name)
-            response = _call_gemini_with_retry(
-                self.client, self.model_name,
-                gen_config={
-                    "system_instruction": sys_instr,
-                    "response_mime_type": "application/json"
-                },
-                contents=user_prompt
-            )
-            raw_text = response.text.strip() if (response and response.text) else ""
-            if raw_text.startswith("```"):
-                raw_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text, flags=re.IGNORECASE).strip()
-
-            data = json.loads(raw_text)
-            if not isinstance(data, dict) or "title" not in data:
-                logger.error("Dictionnaire retourné par Gemini invalide : %s", data)
+            logger.info("Génération du package éditorial via %s...", self.backend.name)
+            raw_data = self.backend.generate_json(full_prompt, PACKAGE_SCHEMA)
+            pkg = self._normalize_package(raw_data)
+            if not pkg:
+                logger.error("Package retourné invalide : %s", raw_data)
                 return None
 
-            logger.info("✓ Titre généré : %s", data.get("title"))
-            return data
+            logger.info("✓ Titre généré : %s", pkg["title"])
+            return pkg
 
-        except json.JSONDecodeError as e:
-            logger.error("Gemini a retourné un JSON invalide (après retries) : %s", e)
+        except LLMAuthError:
+            raise
+        except LLMError as e:
+            logger.error("Erreur LLM lors de la génération du contenu : %s", e)
             return None
         except Exception as e:
-            logger.error("Erreur génération contenu (après retries) : %s", e)
+            logger.error("Erreur inattendue génération contenu : %s", e)
             return None
-
-    def generate_caption(self, title: str) -> str:
-        """
-        Génère une légende Facebook engageante.
-        """
-        prompt_cfg = prompts["caption_generator"]
-        bv = self._brand_format_vars()
-        sys_instr = prompt_cfg["system"].format(**bv)
-        user_prompt = prompt_cfg["user_template"].format(title=title)
-
-        try:
-            logger.info("Génération de la légende...")
-            response = _call_gemini_with_retry(
-                self.client, self.model_name,
-                gen_config={"system_instruction": sys_instr},
-                contents=user_prompt
-            )
-            return response.text.strip()
-
-        except Exception as e:
-            logger.error("Erreur génération légende (après retries) : %s", e)
-            return title  # fallback : utiliser le titre comme légende
-
-    def generate_detail_comment(self, article_text: str) -> str:
-        """
-        Génère un résumé détaillé pour le premier commentaire.
-        """
-        prompt_cfg = prompts["detail_comment_generator"]
-        bv = self._brand_format_vars()
-        sys_instr = prompt_cfg["system"].format(**bv)
-        user_prompt = prompt_cfg["user_template"].format(article_text=article_text)
-
-        try:
-            logger.info("Génération du commentaire détaillé...")
-            response = _call_gemini_with_retry(
-                self.client, self.model_name,
-                gen_config={"system_instruction": sys_instr},
-                contents=user_prompt
-            )
-            return response.text.strip()
-
-        except Exception as e:
-            logger.error("Erreur génération commentaire détaillé (après retries) : %s", e)
-            return ""  # commentaire vide, le post est publié quand même
